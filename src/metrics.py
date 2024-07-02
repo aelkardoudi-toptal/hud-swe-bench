@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import polars as pl
 
-ENGINE = "streaming"
+from src import paging
 
 COLUMNS = ["collected_at", "metric", "host", "value"]
 
@@ -27,21 +27,19 @@ def _samples(source, metric_name: str) -> pl.LazyFrame:
 
 def count_samples(source, metric_name: str) -> int:
     """How many numeric samples the export holds for ``metric_name``."""
-    lf = _samples(source, metric_name)
-    return int(lf.select(pl.len()).collect(engine=ENGINE).item())
+    return paging.frame_length(_samples(source, metric_name))
 
 
 def get_metric_page(source, metric_name: str, skip: int = 0, count: int = 200):
-    """One page of samples for ``metric_name``, counted back from the newest."""
+    """One page of samples for ``metric_name``, counted back from the newest.
+
+    Positional paging is delegated to :func:`src.paging.page_from_end`; see that
+    docstring for the exact page semantics (half-open pages, short oldest page,
+    empty once ``skip`` runs off the start).
+    """
     if metric_name is None or not str(metric_name).strip():
         raise ValueError("metric_name must not be empty")
-    if skip < 0:
-        raise ValueError(f"skip must not be negative, got {skip}")
-    if count < 0:
-        raise ValueError(f"count must not be negative, got {count}")
 
     samples = _samples(source, metric_name)
-    if count == 0:
-        return samples.limit(0).collect(engine=ENGINE).select(COLUMNS)
-    page = samples.slice(-(skip + count), count).collect(engine=ENGINE)
+    page = paging.page_from_end(samples, skip, count)
     return page.select(COLUMNS)
